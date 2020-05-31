@@ -550,32 +550,26 @@ public:
 AVSValue __cdecl Create_DeDot(AVSValue args, void *user_data, IScriptEnvironment *env)
 {	
 
-	if (args[1].AsInt() < 0 || args[1].AsInt() > 510 ) {
-		env->ThrowError("DeDot: luma_2d must be between 0 and 510 (inclusive).");
-	}
+	if (args[1].AsInt() < 0 || args[1].AsInt() > 510 )
+		env->ThrowError("DeDot: luma2d must be between 0 and 510 (inclusive).");
 	
-	if (args[2].AsInt() < 0 || args[2].AsInt() > 255 ) {
-		env->ThrowError("DeDot: luma_t must be between 0 and 255 (inclusive).");
-	}
+	if (args[2].AsInt() < 0 || args[2].AsInt() > 255 )
+		env->ThrowError("DeDot: lumaT must be between 0 and 255 (inclusive).");
 	
-	if (args[3].AsInt() < 0 || args[3].AsInt() > 255 ) {
-		env->ThrowError("DeDot: chroma_t1 must be between 0 and 255 (inclusive).");
-	}
+	if (args[3].AsInt() < 0 || args[3].AsInt() > 255 )
+		env->ThrowError("DeDot: chromaT1 must be between 0 and 255 (inclusive).");
 		
-	if (args[4].AsInt() < 0 || args[4].AsInt() > 255 ) {
-		env->ThrowError("DeDot: chroma_t2 must be between 0 and 255 (inclusive).");
-	}
+	if (args[4].AsInt() < 0 || args[4].AsInt() > 255 )
+		env->ThrowError("DeDot: chromaT2 must be between 0 and 255 (inclusive).");
 	
-	if ((args[1].AsInt() == 510 || args[2].AsInt() == 0 ) && args[4].AsInt() == 255) {
-		env->ThrowError("DeDot: chroma_t2 can't be 255 when luma_2d is 510 or when luma_t is 0 because then all the planes would be returned unchanged.");
-	}
+	if ((args[1].AsInt() == 510 || args[2].AsInt() == 0 ) && args[4].AsInt() == 255)
+		env->ThrowError("DeDot: chromaT2 can't be 255 when luma2d is 510 or when lumaT is 0 because then all the planes would be returned unchanged.");
 	
 	PClip clip = args[0].AsClip();
 	const VideoInfo & vi = clip->GetVideoInfo();
 	
-	if ((vi.BitsPerComponent() > 8 || vi.width == 0 || vi.height == 0) && (!vi.IsY8() || !vi.Is420())) {
+	if ((vi.BitsPerComponent() > 8 || vi.width == 0 || vi.height == 0) && (!vi.IsY8() || !vi.Is420()))
 		env->ThrowError("DeDot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.");
-	}
 
 	return new DeDot(args[0].AsClip(), args[1].AsInt(20), args[2].AsInt(20), args[3].AsInt(15), args[4].AsInt(5), env);
 }
