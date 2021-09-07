@@ -108,29 +108,6 @@ void process_chroma_plane_avx2(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFram
 template void process_chroma_plane_avx2<uint8_t>(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFrame& srcC, PVideoFrame& srcN, PVideoFrame& srcNN, PVideoFrame& destf, const int chroma_t1, const int chroma_t2);
 template void process_chroma_plane_avx2<uint16_t>(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFrame& srcC, PVideoFrame& srcN, PVideoFrame& srcNN, PVideoFrame& destf, const int chroma_t1, const int chroma_t2);
 
-template <class V>
-static AVS_FORCEINLINE V temporal_okay(const V pixel_2previous, const V pixel_previous, const V pixel_current, const V pixel_next, const V pixel_2next, const V bytes_luma_t)
-{
-    if constexpr (std::is_same_v<Vec32uc, V>)
-    {
-        return select(max(sub_saturated(pixel_previous, pixel_next), sub_saturated(pixel_next, pixel_previous)) <= bytes_luma_t &&
-            max(sub_saturated(pixel_current, pixel_2previous), sub_saturated(pixel_2previous, pixel_current)) <= bytes_luma_t &&
-            max(sub_saturated(pixel_current, pixel_2next), sub_saturated(pixel_2next, pixel_current)) <= bytes_luma_t,
-            select(max(sub_saturated(pixel_next, pixel_current), sub_saturated(pixel_current, pixel_next)) <= max(sub_saturated(pixel_previous, pixel_current), sub_saturated(pixel_current, pixel_previous)),
-                Vec32uc(_mm256_avg_epu8(pixel_next, pixel_current)), Vec32uc(_mm256_avg_epu8(pixel_previous, pixel_current))),
-            pixel_current);
-    }
-    else
-    {
-        return select(max(sub_saturated(pixel_previous, pixel_next), sub_saturated(pixel_next, pixel_previous)) <= bytes_luma_t &&
-            max(sub_saturated(pixel_current, pixel_2previous), sub_saturated(pixel_2previous, pixel_current)) <= bytes_luma_t &&
-            max(sub_saturated(pixel_current, pixel_2next), sub_saturated(pixel_2next, pixel_current)) <= bytes_luma_t,
-            select(max(sub_saturated(pixel_next, pixel_current), sub_saturated(pixel_current, pixel_next)) <= max(sub_saturated(pixel_previous, pixel_current), sub_saturated(pixel_current, pixel_previous)),
-                Vec16us(_mm256_avg_epu16(pixel_next, pixel_current)), Vec16us(_mm256_avg_epu16(pixel_previous, pixel_current))),
-            pixel_current);
-    }
-}
-
 template <typename T>
 void process_luma_plane_avx2(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFrame& srcC, PVideoFrame& srcN, PVideoFrame& srcNN, PVideoFrame& destf, const int luma_2d, const int luma_t)
 {
@@ -184,11 +161,48 @@ void process_luma_plane_avx2(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFrame&
                 const Vec16us center_center_lo = extend_low(pixel_current) << 1;
                 const Vec16us center_center_hi = extend_high(pixel_current) << 1;
 
-                select(Vec32cb(compress_saturated(max(sub_saturated(left_right_lo, center_center_lo), sub_saturated(center_center_lo, left_right_lo)) > extend_low(words_luma_2d),
-                    max(sub_saturated(left_right_hi, center_center_hi), sub_saturated(center_center_hi, left_right_hi)) > extend_high(words_luma_2d))) ||
-                    Vec32cb(compress_saturated(max(sub_saturated(above_below_lo, center_center_lo), sub_saturated(center_center_lo, above_below_lo)) > extend_low(words_luma_2d),
-                        max(sub_saturated(above_below_hi, center_center_hi), sub_saturated(center_center_hi, above_below_hi)) > extend_high(words_luma_2d))),
-                    temporal_okay<Vec32uc>(Vec32uc().load(pPP + x), Vec32uc().load(pP + x), pixel_current, Vec32uc().load(pN + x), Vec32uc().load(pNN + x), bytes_luma_t), pixel_current).store(pD + x);
+                Vec32c spat_check = compress_saturated(max(sub_saturated(left_right_lo, center_center_lo), sub_saturated(center_center_lo, left_right_lo)) > extend_low(words_luma_2d),
+                    max(sub_saturated(left_right_hi, center_center_hi), sub_saturated(center_center_hi, left_right_hi)) > extend_high(words_luma_2d)) ||
+                    compress_saturated(max(sub_saturated(above_below_lo, center_center_lo), sub_saturated(center_center_lo, above_below_lo)) > extend_low(words_luma_2d),
+                        max(sub_saturated(above_below_hi, center_center_hi), sub_saturated(center_center_hi, above_below_hi)) > extend_high(words_luma_2d));
+
+                int64_t all_pixels_lo, all_pixels_hi;
+                const Vec16c sp_lo = spat_check.get_low();
+                const Vec16c sp_hi = spat_check.get_high();
+                compress_saturated(Vec8s(sp_lo), Vec8s(sp_lo)).storel(&all_pixels_lo);
+                compress_saturated(Vec8s(sp_hi), Vec8s(sp_hi)).storel(&all_pixels_hi);
+
+                if (all_pixels_lo || all_pixels_hi)
+                {
+                    const Vec32uc pixel_2previous = Vec32uc().load(pPP + x);
+                    const Vec32uc pixel_previous = Vec32uc().load(pP + x);
+                    const Vec32uc pixel_next = Vec32uc().load(pN + x);
+                    const Vec32uc pixel_2next = Vec32uc().load(pNN + x);
+
+                    Vec32c temp_check = max(sub_saturated(pixel_previous, pixel_next), sub_saturated(pixel_next, pixel_previous)) <= bytes_luma_t &&
+                        max(sub_saturated(pixel_current, pixel_2previous), sub_saturated(pixel_2previous, pixel_current)) <= bytes_luma_t &&
+                        max(sub_saturated(pixel_current, pixel_2next), sub_saturated(pixel_2next, pixel_current)) <= bytes_luma_t;
+
+                    int64_t temp_lo, temp_hi;
+                    const Vec16c tm_lo = temp_check.get_low();
+                    const Vec16c tm_hi = temp_check.get_high();
+                    compress_saturated(Vec8s(tm_lo), Vec8s(tm_lo)).storel(&temp_lo);
+                    compress_saturated(Vec8s(tm_hi), Vec8s(tm_hi)).storel(&temp_hi);
+
+                    if (temp_lo || temp_hi)
+                    {
+                        select(Vec32cb(spat_check),
+                            select(Vec32cb(temp_check),
+                                select(max(sub_saturated(pixel_next, pixel_current), sub_saturated(pixel_current, pixel_next)) <= max(sub_saturated(pixel_previous, pixel_current), sub_saturated(pixel_current, pixel_previous)),
+                                    Vec32uc(_mm256_avg_epu8(pixel_next, pixel_current)), Vec32uc(_mm256_avg_epu8(pixel_previous, pixel_current))),
+                                pixel_current),
+                            pixel_current).store(pD + x);
+                    }
+                    else
+                        pixel_current.store(pD + x);
+                }
+                else
+                    pixel_current.store(pD + x);
             }
 
             for (int x = 1 + width_simd; x < width - 1; ++x)
@@ -251,11 +265,48 @@ void process_luma_plane_avx2(PVideoFrame& srcPP, PVideoFrame& srcP, PVideoFrame&
                 const Vec8ui center_center_lo = extend_low(pixel_current) << 1;
                 const Vec8ui center_center_hi = extend_high(pixel_current) << 1;
 
-                select(Vec16sb(compress_saturated(max(sub_saturated(left_right_lo, center_center_lo), sub_saturated(center_center_lo, left_right_lo)) > extend_low(words_luma_2d),
-                    max(sub_saturated(left_right_hi, center_center_hi), sub_saturated(center_center_hi, left_right_hi)) > extend_high(words_luma_2d))) ||
-                    Vec16sb(compress_saturated(max(sub_saturated(above_below_lo, center_center_lo), sub_saturated(center_center_lo, above_below_lo)) > extend_low(words_luma_2d),
-                        max(sub_saturated(above_below_hi, center_center_hi), sub_saturated(center_center_hi, above_below_hi)) > extend_high(words_luma_2d))),
-                    temporal_okay<Vec16us>(Vec16us().load(pPP + x), Vec16us().load(pP + x), pixel_current, Vec16us().load(pN + x), Vec16us().load(pNN + x), bytes_luma_t), pixel_current).store(pD + x);
+                Vec16s spat_check = compress_saturated(max(sub_saturated(left_right_lo, center_center_lo), sub_saturated(center_center_lo, left_right_lo)) > extend_low(words_luma_2d),
+                    max(sub_saturated(left_right_hi, center_center_hi), sub_saturated(center_center_hi, left_right_hi)) > extend_high(words_luma_2d)) ||
+                    compress_saturated(max(sub_saturated(above_below_lo, center_center_lo), sub_saturated(center_center_lo, above_below_lo)) > extend_low(words_luma_2d),
+                        max(sub_saturated(above_below_hi, center_center_hi), sub_saturated(center_center_hi, above_below_hi)) > extend_high(words_luma_2d));
+
+                int64_t all_pixels_lo, all_pixels_hi;
+                const Vec8s sp_lo = spat_check.get_low();
+                const Vec8s sp_hi = spat_check.get_high();
+                compress_saturated(Vec4i(sp_lo), Vec4i(sp_lo)).storel(&all_pixels_lo);
+                compress_saturated(Vec4i(sp_hi), Vec4i(sp_hi)).storel(&all_pixels_hi);
+
+                if (all_pixels_lo || all_pixels_hi)
+                {
+                    const Vec16us pixel_2previous = Vec16us().load(pPP + x);
+                    const Vec16us pixel_previous = Vec16us().load(pP + x);
+                    const Vec16us pixel_next = Vec16us().load(pN + x);
+                    const Vec16us pixel_2next = Vec16us().load(pNN + x);
+
+                    Vec16s temp_check = max(sub_saturated(pixel_previous, pixel_next), sub_saturated(pixel_next, pixel_previous)) <= bytes_luma_t &&
+                        max(sub_saturated(pixel_current, pixel_2previous), sub_saturated(pixel_2previous, pixel_current)) <= bytes_luma_t &&
+                        max(sub_saturated(pixel_current, pixel_2next), sub_saturated(pixel_2next, pixel_current)) <= bytes_luma_t;
+
+                    int64_t temp_lo, temp_hi;
+                    const Vec8s tm_lo = temp_check.get_low();
+                    const Vec8s tm_hi = temp_check.get_high();
+                    compress_saturated(Vec4i(tm_lo), Vec4i(tm_lo)).storel(&temp_lo);
+                    compress_saturated(Vec4i(tm_hi), Vec4i(tm_hi)).storel(&temp_hi);
+
+                    if (temp_lo || temp_hi)
+                    {
+                        select(Vec16sb(spat_check),
+                            select(Vec16sb(temp_check),
+                                select(max(sub_saturated(pixel_next, pixel_current), sub_saturated(pixel_current, pixel_next)) <= max(sub_saturated(pixel_previous, pixel_current), sub_saturated(pixel_current, pixel_previous)),
+                                    Vec16us(_mm256_avg_epu16(pixel_next, pixel_current)), Vec16us(_mm256_avg_epu16(pixel_previous, pixel_current))),
+                                pixel_current),
+                            pixel_current).store(pD + x);
+                    }
+                    else
+                        pixel_current.store(pD + x);
+                }
+                else
+                    pixel_current.store(pD + x);
             }
 
             for (int x = 1 + width_simd; x < width - 1; ++x)
