@@ -1,4 +1,4 @@
-# Description
+## Description
 
 Dedot is a temporal cross color (rainbow) and cross luminance (dotcrawl) reduction filter.
 
@@ -8,13 +8,19 @@ It doesn't filter moving objects.
 
 This is [a port of the VapourSynth plugin DeDot](https://github.com/dubhater/vapoursynth-dedot).
 
-# Usage
+### Requirements:
+
+- AviSynth 2.60 / AviSynth+ 3.4 or later
+
+- Microsoft VisualC++ Redistributable Package 2022 (can be downloaded from [here](https://github.com/abbodi1406/vcredist/releases)) (Windows only)
+
+### Usage:
 
 ```
 DeDot(clip, int "luma2d", int "lumaT", int "chromaT1", int "chromaT2", int "opt")
 ```
 
-## Parameters:
+### Parameters:
 - clip\
     A clip to process. It must be in YUV 8..16-bit planar format.
     
@@ -53,26 +59,24 @@ DeDot(clip, int "luma2d", int "lumaT", int "chromaT1", int "chromaT2", int "opt"
     2: Use AVX2 code.\
     Default: -1.
     
-# Building
+### Building:
 
-## Windows
+- Windows\
+    Use solution files.
 
-Use solution files.
-
-## Linux
-
-### Requirements
-
-- Git
-- C++17 compiler
-- CMake >= 3.16
-
-```
-git clone https://github.com/Asd-g/AviSynth-DeDot && \
-cd AviSynth-DeDot && \
-mkdir build && \
-cd build && \
-cmake .. && \
-make -j$(nproc) && \
-sudo make install
-```
+- Linux
+    ```
+    Requirements:
+        - Git
+        - C++17 compiler
+        - CMake >= 3.16
+    ```
+    ```
+    git clone https://github.com/Asd-g/AviSynth-DeDot && \
+    cd AviSynth-DeDot && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    sudo make install
+    ```
